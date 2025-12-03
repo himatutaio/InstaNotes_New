@@ -2,11 +2,143 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { EducationLevel, NoteData } from './types';
 import * as StorageService from './services/storageService';
 import * as GeminiService from './services/geminiService';
+import { supabase, signOut } from './services/supabaseService';
 import { LiveTutor } from './components/LiveTutor';
+import { User } from '@supabase/supabase-js';
 
 // --- Sub-Components ---
 
-// 1. Level Selector
+// 1. Auth Modal
+const AuthModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  initialMode?: 'login' | 'signup';
+  forcedMessage?: string;
+}> = ({ isOpen, onClose, initialMode = 'login', forcedMessage }) => {
+  const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setMode(initialMode);
+    setError('');
+  }, [initialMode, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      if (mode === 'signup') {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (error) throw error;
+        // Auto sign in happens usually, or allow user to switch to login if confirmation needed
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+      }
+      onClose();
+    } catch (err: any) {
+      setError(err.message || "Er ging iets mis.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+      <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
+        <div className="p-6">
+          <div className="flex justify-between items-center mb-6">
+             <h2 className="text-2xl font-bold text-gray-800">
+               {mode === 'login' ? 'Inloggen' : 'Registreren'}
+             </h2>
+             {!forcedMessage && (
+               <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                 </svg>
+               </button>
+             )}
+          </div>
+
+          {forcedMessage && (
+            <div className="bg-indigo-50 border border-indigo-100 text-indigo-800 text-sm p-3 rounded-xl mb-6">
+              {forcedMessage}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input 
+                type="email" 
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                placeholder="naam@voorbeeld.nl"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Wachtwoord</label>
+              <input 
+                type="password" 
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                placeholder="••••••••"
+              />
+            </div>
+
+            {error && <p className="text-red-500 text-sm">{error}</p>}
+
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Laden...' : (mode === 'login' ? 'Inloggen' : 'Registreren')}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center text-sm text-gray-500">
+            {mode === 'login' ? (
+              <>
+                Nog geen account?{' '}
+                <button onClick={() => setMode('signup')} className="text-primary font-semibold hover:underline">
+                  Registreer hier
+                </button>
+              </>
+            ) : (
+              <>
+                Heb je al een account?{' '}
+                <button onClick={() => setMode('login')} className="text-primary font-semibold hover:underline">
+                  Log in
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 2. Level Selector
 const LevelSelector: React.FC<{ 
   onSelect: (level: EducationLevel) => void;
   selectedLevel?: EducationLevel 
@@ -34,7 +166,7 @@ const LevelSelector: React.FC<{
   );
 };
 
-// 2. Note Detail View
+// 3. Note Detail View
 const NoteDetail: React.FC<{ 
   note: NoteData; 
   onBack: () => void;
@@ -219,9 +351,25 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showLiveTutor, setShowLiveTutor] = useState(false);
 
-  // Load notes on mount
+  // Auth State
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalConfig, setAuthModalConfig] = useState<{mode: 'login' | 'signup', message?: string}>({ mode: 'login' });
+
+  // Load notes and user on mount
   useEffect(() => {
     StorageService.getNotes().then(setNotes);
+
+    // Supabase Auth Listener
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   // Filter notes
@@ -230,7 +378,22 @@ export default function App() {
     return n.title.toLowerCase().includes(q) || n.summaryPoints.some(p => p.toLowerCase().includes(q));
   });
 
+  const checkUsageLimit = (): boolean => {
+    if (user) return true; // Logged in users are unlimited
+    const count = StorageService.getUsageCount();
+    return count < StorageService.MAX_FREE_USAGE;
+  };
+
   const handleStartCreate = () => {
+    if (!checkUsageLimit()) {
+      setAuthModalConfig({
+        mode: 'signup',
+        message: 'Je hebt je gratis 3 samenvattingen gebruikt. Registreer gratis om verder te gaan!'
+      });
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     setSelectedLevel(undefined);
     setProcessingState({ status: 'idle', message: '' });
     setView('create');
@@ -243,6 +406,16 @@ export default function App() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0 || !selectedLevel) return;
     
+    // Double check limit before processing (in case they sat on the screen)
+    if (!checkUsageLimit()) {
+      setAuthModalConfig({
+        mode: 'signup',
+        message: 'Je limiet is bereikt. Log in om door te gaan.'
+      });
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     const file = e.target.files[0];
     setProcessingState({ status: 'uploading', message: 'Foto uploaden...' });
 
@@ -261,6 +434,12 @@ export default function App() {
         };
 
         await StorageService.saveNote(newNote);
+        
+        // Increment usage if not logged in
+        if (!user) {
+          StorageService.incrementUsageCount();
+        }
+
         setNotes(prev => [newNote, ...prev]);
         setSelectedNote(newNote);
         setProcessingState({ status: 'complete', message: 'Klaar!' });
@@ -298,6 +477,17 @@ export default function App() {
     }
   };
 
+  const handleAuthClick = () => {
+    if (user) {
+      if(confirm('Wil je uitloggen?')) {
+        signOut();
+      }
+    } else {
+      setAuthModalConfig({ mode: 'login', message: undefined });
+      setIsAuthModalOpen(true);
+    }
+  };
+
   // Render Home View
   const renderHome = () => (
     <div className="flex flex-col h-full bg-background">
@@ -312,6 +502,24 @@ export default function App() {
                  </div>
                 <h1 className="text-2xl font-black text-gray-900 tracking-tight">InstaNotes</h1>
             </div>
+            
+            {/* User Profile / Login */}
+            <button 
+              onClick={handleAuthClick}
+              className={`p-2 rounded-full border transition-all ${user ? 'bg-primary text-white border-primary' : 'bg-gray-100 text-gray-500 border-transparent hover:bg-gray-200'}`}
+            >
+               {user ? (
+                  // Logged in icon
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                  </svg>
+               ) : (
+                  // Logged out icon
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+               )}
+            </button>
         </div>
         
         {/* Search */}
@@ -474,6 +682,13 @@ export default function App() {
             onClose={() => setShowLiveTutor(false)} 
         />
       )}
+
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)}
+        initialMode={authModalConfig.mode}
+        forcedMessage={authModalConfig.message}
+      />
     </div>
   );
 }

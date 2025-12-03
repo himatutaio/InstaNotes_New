@@ -4,6 +4,25 @@ import { NoteData } from '../types';
 // For this standalone demo, we use localStorage to persist data so the app is functional without API keys.
 
 const STORAGE_KEY = 'instanotes_data';
+const USAGE_KEY = 'instanotes_free_usage';
+
+// --- Usage Limit Logic ---
+
+export const getUsageCount = (): number => {
+  const count = localStorage.getItem(USAGE_KEY);
+  return count ? parseInt(count, 10) : 0;
+};
+
+export const incrementUsageCount = (): number => {
+  const current = getUsageCount();
+  const newCount = current + 1;
+  localStorage.setItem(USAGE_KEY, newCount.toString());
+  return newCount;
+};
+
+export const MAX_FREE_USAGE = 3;
+
+// --- Note Storage Logic ---
 
 export const saveNote = async (note: NoteData): Promise<void> => {
   return new Promise((resolve) => {
