@@ -46,16 +46,23 @@ export const getNotes = async (): Promise<NoteData[]> => {
   });
 };
 
-export const deleteNote = async (id: string): Promise<void> => {
+/**
+ * Verwijdert een notitie en retourneert de bijgewerkte lijst.
+ * (handig om state in sync te houden en direct te updaten zonder extra getNotes-call)
+ */
+export const deleteNote = async (id: string): Promise<NoteData[]> => {
   return new Promise((resolve) => {
     setTimeout(() => {
       const existingData = localStorage.getItem(STORAGE_KEY);
+      let updatedNotes: NoteData[] = [];
       if (existingData) {
         const notes: NoteData[] = JSON.parse(existingData);
-        const updatedNotes = notes.filter(n => n.id !== id);
+        updatedNotes = notes.filter(n => n.id !== id);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedNotes));
+      } else {
+        updatedNotes = [];
       }
-      resolve();
+      resolve(updatedNotes);
     }, 300);
   });
 };
