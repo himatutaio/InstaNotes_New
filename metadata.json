@@ -1,5 +1,5 @@
 {
-  "name": "InstaNotes",
+  "name": "InstaNotes App",
   "description": "Smart study companion app for students. Snap a photo, get an AI-powered summary tailored to your education level.",
   "requestFramePermissions": [
     "camera",
