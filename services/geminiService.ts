@@ -44,9 +44,16 @@ export const generateNoteFromImage = async (
     Jouw taak:
     1. Lees de tekst (OCR).
     2. Maak een samenvatting van hoge kwaliteit, aangepast aan het niveau: ${level}.
+    
+    BELANGRIJK - Definitie van de samenvatting:
+    Een samenvatting is een verkorte versie van de tekst waarin alleen de belangrijkste informatie wordt weergegeven. 
+    Je laat details, voorbeelden en uitgebreide uitleg weg, maar behoudt de kernpunten, zodat de lezer snel begrijpt waar de oorspronkelijke tekst over gaat.
+    
+    Niveau instructies:
        - Voor lagere niveaus (VMBO/MBO 1-2): Gebruik zeer eenvoudige taal, korte zinnen, en focus op de absolute kern.
        - Voor middelbare niveaus (MBO 3-4, HAVO): Gebruik heldere taal, gestructureerd, volledige context.
        - Voor hogere niveaus (HBO/WO): Gebruik academische precisie, nuance en diepgang, maar blijf helder.
+    
     3. Identificeer moeilijke woorden of jargon die relevant zijn voor dit niveau en leg ze uit.
     
     Formatteer het antwoord strikt als JSON volgens het schema.
@@ -64,7 +71,7 @@ export const generateNoteFromImage = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: RESPONSE_SCHEMA,
-        systemInstruction: "Je bent een behulpzame, Nederlandse onderwijs assistent.",
+        systemInstruction: "Je bent een behulpzame, Nederlandse onderwijs assistent die beknopte en krachtige samenvattingen schrijft.",
         temperature: 0.3, // Lower temperature for more factual results
       }
     });

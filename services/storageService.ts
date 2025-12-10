@@ -36,6 +36,20 @@ export const saveNote = async (note: NoteData): Promise<void> => {
   });
 };
 
+export const updateNote = async (updatedNote: NoteData): Promise<void> => {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      const existingData = localStorage.getItem(STORAGE_KEY);
+      if (existingData) {
+        let notes: NoteData[] = JSON.parse(existingData);
+        notes = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+      }
+      resolve();
+    }, 200); 
+  });
+};
+
 export const getNotes = async (): Promise<NoteData[]> => {
   return new Promise((resolve) => {
     setTimeout(() => {

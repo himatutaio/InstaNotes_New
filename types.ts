@@ -14,6 +14,7 @@ export enum EducationLevel {
 export interface DifficultWord {
   word: string;
   definition: string;
+  needsPractice?: boolean;
 }
 
 export interface NoteData {
