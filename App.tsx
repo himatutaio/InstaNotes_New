@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { EducationLevel, NoteData, ProcessingState, DifficultWord } from './types';
 import { saveNote, getNotes, deleteNote, updateNote, getUsageCount, incrementUsageCount, MAX_FREE_USAGE } from './services/storageService';
@@ -26,6 +25,7 @@ export default function App() {
   const [usageCount, setUsageCount] = useState(0);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [isPro, setIsPro] = useState(false);
   
   // Flashcard state
   const [showOnlyPractice, setShowOnlyPractice] = useState(false);
@@ -42,11 +42,21 @@ export default function App() {
   useEffect(() => {
     loadNotes();
     
+    // Check for Payment Success return
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') === 'true') {
+      setIsPro(true);
+      // Optionally clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      alert("Bedankt! Je abonnement is geactiveerd.");
+    }
+
     // Auth Check
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) {
         setUsageCount(getUsageCount(session.user.id));
+        checkProStatus(session.user.id);
       }
     });
 
@@ -54,13 +64,33 @@ export default function App() {
       setSession(session);
       if (session) {
         setUsageCount(getUsageCount(session.user.id));
+        checkProStatus(session.user.id);
       } else {
         setUsageCount(0);
+        setIsPro(false);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const checkProStatus = async (userId: string) => {
+    // 1. Check local override from payment redirect
+    if (isPro) return;
+
+    // 2. Check Database (Real implementation)
+    // Note: This often requires RLS policies allowing 'select' on subscriptions
+    const { data } = await supabase
+      .from('subscriptions')
+      .select('status')
+      .eq('user_id', userId)
+      .in('status', ['active', 'trialing'])
+      .single();
+
+    if (data) {
+      setIsPro(true);
+    }
+  };
 
   const loadNotes = async () => {
     const loaded = await getNotes();
@@ -71,6 +101,7 @@ export default function App() {
     await signOut();
     setSession(null);
     setView('home');
+    setIsPro(false);
   };
 
   // Rule: Must be logged in to START using the app.
@@ -82,9 +113,14 @@ export default function App() {
       return false;
     }
     
-    // Step 2: Check Usage Limit for logged in user
+    // Step 2: If PRO, allow everything
+    if (isPro) {
+      return true;
+    }
+
+    // Step 3: Check Usage Limit for free user
     if (usageCount >= MAX_FREE_USAGE) {
-      // Step 3: Show Payment Wall
+      // Step 4: Show Payment Wall
       setShowUpgradeModal(true);
       return false;
     }
@@ -136,8 +172,8 @@ export default function App() {
       setProcessing({ status: 'idle' });
       setUploadImage(null);
 
-      // Increment usage for this user
-      if (session) {
+      // Increment usage for this user ONLY if not pro (or track for pro too, but limit doesn't apply)
+      if (session && !isPro) {
         const newCount = incrementUsageCount(session.user.id);
         setUsageCount(newCount);
       }
@@ -151,11 +187,9 @@ export default function App() {
   const handleRegenerateLevel = async (newLevel: EducationLevel) => {
     if (!selectedNote || !selectedNote.originalImageBase64) return;
     
-    // Regeneration also counts as usage? 
-    // Usually 'Yes' in AI apps due to cost. Let's enforce it.
     if (!checkAccess()) return;
 
-    if (!confirm(`Wil je de samenvatting opnieuw genereren voor niveau ${newLevel}? Dit kost 1 credit.`)) {
+    if (!confirm(`Wil je de samenvatting opnieuw genereren voor niveau ${newLevel}? ${!isPro ? 'Dit kost 1 credit.' : ''}`)) {
       return;
     }
 
@@ -178,7 +212,7 @@ export default function App() {
       setNotes(updatedNotesList);
       setSelectedNote(updatedNote);
 
-      if (session) {
+      if (session && !isPro) {
         const newCount = incrementUsageCount(session.user.id);
         setUsageCount(newCount);
       }
@@ -310,7 +344,7 @@ export default function App() {
           
           {/* Center: Title */}
           <h1 className="text-xl font-bold tracking-wide absolute left-1/2 transform -translate-x-1/2 whitespace-nowrap">
-            InstaNotes
+            InstaNotes {isPro && <span className="text-xs bg-yellow-400 text-black px-1.5 py-0.5 rounded-full ml-1 align-top">PRO</span>}
           </h1>
 
           {/* Right: Home/Login Button */}
@@ -351,10 +385,12 @@ export default function App() {
           <div className="p-4 space-y-6">
              {/* Usage Banner - Only show if logged in */}
              {session && (
-               <div className={`text-center py-2 px-4 rounded-lg text-sm font-medium ${usageCount >= MAX_FREE_USAGE ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
-                  {usageCount >= MAX_FREE_USAGE 
-                    ? "Tegoed op. Upgrade voor onbeperkt gebruik." 
-                    : `Je hebt nog ${MAX_FREE_USAGE - usageCount} gratis samenvattingen.`}
+               <div className={`text-center py-2 px-4 rounded-lg text-sm font-medium ${isPro ? 'bg-yellow-50 text-yellow-700' : (usageCount >= MAX_FREE_USAGE ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700')}`}>
+                  {isPro 
+                    ? "✨ Je hebt onbeperkte PRO toegang." 
+                    : (usageCount >= MAX_FREE_USAGE 
+                        ? "Tegoed op. Upgrade voor onbeperkt gebruik." 
+                        : `Je hebt nog ${MAX_FREE_USAGE - usageCount} gratis samenvattingen.`)}
                </div>
              )}
 

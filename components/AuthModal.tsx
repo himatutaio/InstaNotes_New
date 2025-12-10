@@ -13,24 +13,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, isForc
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
 
     try {
       if (isLogin) {
         await signIn(email, password);
+        onSuccess();
+        onClose();
       } else {
         await signUp(email, password);
-        alert('Registratie succesvol! Je bent nu ingelogd.');
+        // Don't close immediately on signup, show confirmation message
+        setSuccessMsg('Registratie gelukt! Controleer je email inbox (en spam) om je account te bevestigen voordat je inlogt.');
+        setIsLogin(true); // Switch to login view
       }
-      onSuccess();
-      onClose();
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Er is een fout opgetreden.');
+      if (err.message && err.message.includes("Email not confirmed")) {
+        setError("Je emailadres is nog niet bevestigd. Controleer je inbox.");
+      } else if (err.message && err.message.includes("Invalid login credentials")) {
+        setError("Ongeldig emailadres of wachtwoord.");
+      } else {
+        setError(err.message || 'Er is een fout opgetreden.');
+      }
     } finally {
       setLoading(false);
     }
@@ -38,7 +48,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, isForc
 
   return (
     <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-      <div className="bg-white rounded-2xl w-full max-w-sm p-8 shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-8 shadow-2xl relative">
         {!isForced && (
            <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
@@ -62,6 +72,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, isForc
               : (isLogin ? 'Log in om je notities te beheren' : 'Registreer voor onbeperkte toegang')}
           </p>
         </div>
+
+        {successMsg && (
+          <div className="mb-4 p-3 bg-green-50 text-green-700 text-sm rounded-lg border border-green-200">
+            {successMsg}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -89,7 +105,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, isForc
           </div>
 
           {error && (
-            <div className="text-red-500 text-sm text-center bg-red-50 p-2 rounded-lg">
+            <div className="text-red-500 text-sm text-center bg-red-50 p-2 rounded-lg border border-red-100">
               {error}
             </div>
           )}
@@ -106,7 +122,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onSuccess, isForc
         <div className="mt-6 text-center text-sm text-gray-500">
           {isLogin ? 'Nog geen account?' : 'Heb je al een account?'}
           <button 
-            onClick={() => { setIsLogin(!isLogin); setError(null); }}
+            onClick={() => { setIsLogin(!isLogin); setError(null); setSuccessMsg(null); }}
             className="text-primary font-bold ml-1 hover:underline focus:outline-none"
           >
             {isLogin ? 'Registreer hier' : 'Log in'}
