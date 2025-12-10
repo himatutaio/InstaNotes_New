@@ -1,22 +1,25 @@
+
 import { NoteData } from '../types';
 
 // NOTE: In a production environment, this would be replaced by Firebase Firestore and Firebase Storage.
 // For this standalone demo, we use localStorage to persist data so the app is functional without API keys.
 
 const STORAGE_KEY = 'instanotes_data';
-const USAGE_KEY = 'instanotes_free_usage';
+const USAGE_PREFIX = 'instanotes_usage_';
 
 // --- Usage Limit Logic ---
 
-export const getUsageCount = (): number => {
-  const count = localStorage.getItem(USAGE_KEY);
+export const getUsageCount = (userId: string): number => {
+  if (!userId) return 0;
+  const count = localStorage.getItem(USAGE_PREFIX + userId);
   return count ? parseInt(count, 10) : 0;
 };
 
-export const incrementUsageCount = (): number => {
-  const current = getUsageCount();
+export const incrementUsageCount = (userId: string): number => {
+  if (!userId) return 0;
+  const current = getUsageCount(userId);
   const newCount = current + 1;
-  localStorage.setItem(USAGE_KEY, newCount.toString());
+  localStorage.setItem(USAGE_PREFIX + userId, newCount.toString());
   return newCount;
 };
 
@@ -60,10 +63,6 @@ export const getNotes = async (): Promise<NoteData[]> => {
   });
 };
 
-/**
- * Verwijdert een notitie en retourneert de bijgewerkte lijst.
- * (handig om state in sync te houden en direct te updaten zonder extra getNotes-call)
- */
 export const deleteNote = async (id: string): Promise<NoteData[]> => {
   return new Promise((resolve) => {
     setTimeout(() => {

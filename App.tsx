@@ -1,10 +1,15 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { EducationLevel, NoteData, ProcessingState, DifficultWord } from './types';
-import { saveNote, getNotes, deleteNote, updateNote } from './services/storageService';
+import { saveNote, getNotes, deleteNote, updateNote, getUsageCount, incrementUsageCount, MAX_FREE_USAGE } from './services/storageService';
 import { generateNoteFromImage } from './services/geminiService';
+import { supabase, signOut } from './services/supabaseService';
+import { Session } from '@supabase/supabase-js';
 import { LiveTutor } from './components/LiveTutor';
 import { Flashcard } from './components/Flashcard';
+import { AuthModal } from './components/AuthModal';
+import { ImageModal } from './components/ImageModal';
+import { UpgradeModal } from './components/UpgradeModal';
 
 export default function App() {
   const [notes, setNotes] = useState<NoteData[]>([]);
@@ -16,17 +21,45 @@ export default function App() {
   const [showTutor, setShowTutor] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   
+  // Auth & Usage State
+  const [session, setSession] = useState<Session | null>(null);
+  const [usageCount, setUsageCount] = useState(0);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  
   // Flashcard state
   const [showOnlyPractice, setShowOnlyPractice] = useState(false);
   const [showAddCardModal, setShowAddCardModal] = useState(false);
   const [newCardWord, setNewCardWord] = useState("");
   const [newCardDef, setNewCardDef] = useState("");
 
+  // Image Modal State
+  const [showImageModal, setShowImageModal] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileUploadRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadNotes();
+    
+    // Auth Check
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        setUsageCount(getUsageCount(session.user.id));
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        setUsageCount(getUsageCount(session.user.id));
+      } else {
+        setUsageCount(0);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const loadNotes = async () => {
@@ -34,7 +67,39 @@ export default function App() {
     setNotes(loaded);
   };
 
+  const handleLogout = async () => {
+    await signOut();
+    setSession(null);
+    setView('home');
+  };
+
+  // Rule: Must be logged in to START using the app.
+  // Rule: Once logged in, you get 3 free tries. Then Pay.
+  const checkAccess = (): boolean => {
+    if (!session) {
+      // Step 1: Force Registration/Login first
+      setShowAuthModal(true);
+      return false;
+    }
+    
+    // Step 2: Check Usage Limit for logged in user
+    if (usageCount >= MAX_FREE_USAGE) {
+      // Step 3: Show Payment Wall
+      setShowUpgradeModal(true);
+      return false;
+    }
+
+    return true;
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    // Prevent file selection processing if access is denied
+    if (!checkAccess()) {
+      // Clear value so change event fires again next time
+      event.target.value = '';
+      return;
+    }
+
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -44,10 +109,14 @@ export default function App() {
       };
       reader.readAsDataURL(file);
     }
+    event.target.value = ''; 
   };
 
   const handleAnalyze = async () => {
     if (!uploadImage) return;
+    
+    // Final check before burning a credit
+    if (!checkAccess()) return;
 
     setProcessing({ status: 'analyzing', message: 'Beeld analyseren en samenvatten...' });
     
@@ -66,9 +135,59 @@ export default function App() {
       setView('detail');
       setProcessing({ status: 'idle' });
       setUploadImage(null);
+
+      // Increment usage for this user
+      if (session) {
+        const newCount = incrementUsageCount(session.user.id);
+        setUsageCount(newCount);
+      }
+
     } catch (error) {
       console.error(error);
       setProcessing({ status: 'error', message: 'Er ging iets mis bij het genereren.' });
+    }
+  };
+
+  const handleRegenerateLevel = async (newLevel: EducationLevel) => {
+    if (!selectedNote || !selectedNote.originalImageBase64) return;
+    
+    // Regeneration also counts as usage? 
+    // Usually 'Yes' in AI apps due to cost. Let's enforce it.
+    if (!checkAccess()) return;
+
+    if (!confirm(`Wil je de samenvatting opnieuw genereren voor niveau ${newLevel}? Dit kost 1 credit.`)) {
+      return;
+    }
+
+    setProcessing({ status: 'analyzing', message: `Opnieuw genereren voor ${newLevel}...` });
+
+    try {
+      const result = await generateNoteFromImage(selectedNote.originalImageBase64, newLevel);
+      
+      // Update existing note with new analysis but keep ID and timestamp (or update timestamp)
+      const updatedNote: NoteData = {
+        ...selectedNote,
+        ...result,
+        educationLevel: newLevel
+      };
+
+      await updateNote(updatedNote);
+      
+      // Update state
+      const updatedNotesList = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
+      setNotes(updatedNotesList);
+      setSelectedNote(updatedNote);
+
+      if (session) {
+        const newCount = incrementUsageCount(session.user.id);
+        setUsageCount(newCount);
+      }
+
+      setProcessing({ status: 'idle' });
+
+    } catch (error) {
+      console.error(error);
+      setProcessing({ status: 'error', message: 'Fout bij opnieuw genereren.' });
     }
   };
 
@@ -172,15 +291,55 @@ export default function App() {
     <div className="flex flex-col h-full bg-gray-50 max-w-md mx-auto shadow-2xl overflow-hidden relative">
       {/* Header */}
       <header className="bg-primary text-white p-4 shadow-md z-10">
-        <div className="flex justify-between items-center">
-          {view !== 'home' && (
-             <button onClick={() => setView('home')} className="text-white/80 hover:text-white mr-2">
-               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
-                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-               </svg>
-             </button>
-          )}
-          <h1 className="text-xl font-bold tracking-wide flex-1 text-center mr-8">InstaNotes</h1>
+        <div className="flex items-center justify-between relative h-8">
+          {/* Left: Back Button */}
+          <div className="w-10 flex justify-start">
+            {view !== 'home' && (
+               <button onClick={() => setView('home')} className="text-white/80 hover:text-white">
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                 </svg>
+               </button>
+            )}
+            {view === 'home' && session && (
+               <button onClick={handleLogout} className="text-xs text-white/70 hover:text-white border border-white/30 rounded px-2 py-1">
+                 Log uit
+               </button>
+            )}
+          </div>
+          
+          {/* Center: Title */}
+          <h1 className="text-xl font-bold tracking-wide absolute left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+            InstaNotes
+          </h1>
+
+          {/* Right: Home/Login Button */}
+          <div className="w-10 flex justify-end">
+            {view !== 'home' ? (
+               <button 
+                 onClick={() => {
+                   setView('home');
+                   setSelectedNote(null);
+                   setUploadImage(null);
+                 }} 
+                 className="text-white/80 hover:text-white"
+                 title="Naar beginscherm"
+               >
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+                  </svg>
+               </button>
+            ) : (
+              !session && (
+                <button 
+                  onClick={() => { setShowAuthModal(true); }}
+                  className="text-xs font-bold bg-white text-primary px-2 py-1.5 rounded hover:bg-gray-100 transition-colors"
+                >
+                  Log in
+                </button>
+              )
+            )}
+          </div>
         </div>
       </header>
 
@@ -190,6 +349,15 @@ export default function App() {
         {/* VIEW: HOME */}
         {view === 'home' && (
           <div className="p-4 space-y-6">
+             {/* Usage Banner - Only show if logged in */}
+             {session && (
+               <div className={`text-center py-2 px-4 rounded-lg text-sm font-medium ${usageCount >= MAX_FREE_USAGE ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                  {usageCount >= MAX_FREE_USAGE 
+                    ? "Tegoed op. Upgrade voor onbeperkt gebruik." 
+                    : `Je hebt nog ${MAX_FREE_USAGE - usageCount} gratis samenvattingen.`}
+               </div>
+             )}
+
              {/* Hero / CTA */}
              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
                 <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -203,13 +371,17 @@ export default function App() {
                 
                 <div className="flex gap-3">
                   <button 
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => {
+                       if(checkAccess()) fileInputRef.current?.click();
+                    }}
                     className="flex-1 bg-primary text-white py-3 px-2 rounded-xl font-semibold shadow-lg shadow-primary/30 active:scale-95 transition-transform text-sm"
                   >
                     Start Camera
                   </button>
                   <button 
-                    onClick={() => fileUploadRef.current?.click()}
+                    onClick={() => {
+                      if(checkAccess()) fileUploadRef.current?.click();
+                    }}
                     className="flex-1 bg-white border-2 border-primary/10 text-primary py-3 px-2 rounded-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-transform text-sm"
                   >
                     Upload Foto
@@ -359,11 +531,58 @@ export default function App() {
 
         {/* VIEW: DETAIL */}
         {view === 'detail' && selectedNote && (
-          <div className="p-4 pb-24 space-y-6">
+          <div className="p-4 pb-24 space-y-6 relative">
+             {/* Loading Overlay during regeneration */}
+             {processing.status === 'analyzing' && (
+               <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center rounded-2xl">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+                  <p className="text-primary font-bold">{processing.message || "Aanpassen..."}</p>
+               </div>
+             )}
+
+            {/* Image Banner */}
+            {selectedNote.originalImageBase64 && (
+              <div 
+                className="w-full h-32 bg-gray-100 rounded-xl overflow-hidden relative group cursor-pointer shadow-sm border border-gray-100"
+                onClick={() => setShowImageModal(true)}
+              >
+                <img 
+                  src={selectedNote.originalImageBase64} 
+                  alt="Original" 
+                  className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" 
+                />
+                <div className="absolute inset-0 bg-black/10 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                   <div className="bg-white/90 p-2 rounded-full shadow-lg transform group-hover:scale-110 transition-transform">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5 text-primary">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" />
+                      </svg>
+                   </div>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
-               <span className="inline-block px-3 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full uppercase tracking-wide">
-                 {selectedNote.educationLevel}
-               </span>
+               <div className="flex items-center gap-2">
+                 <div className="relative inline-block group">
+                    <select
+                      value={selectedNote.educationLevel}
+                      onChange={(e) => handleRegenerateLevel(e.target.value as EducationLevel)}
+                      disabled={processing.status === 'analyzing'}
+                      className="appearance-none pl-3 pr-8 py-1 bg-primary/10 text-primary text-xs font-bold rounded-full uppercase tracking-wide border-none focus:ring-2 focus:ring-primary cursor-pointer hover:bg-primary/20 transition-colors disabled:opacity-50"
+                    >
+                      {Object.values(EducationLevel).map(level => (
+                        <option key={level} value={level}>{level}</option>
+                      ))}
+                    </select>
+                    <div className="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none text-primary">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                      </svg>
+                    </div>
+                 </div>
+                 <span className="text-gray-400 text-xs text-xs">← Klik om niveau te wijzigen</span>
+               </div>
+               
                <h2 className="text-2xl font-bold text-gray-900 leading-tight">{selectedNote.title}</h2>
                <p className="text-gray-400 text-xs">Gegenereerd op {new Date(selectedNote.timestamp).toLocaleDateString()}</p>
             </div>
@@ -482,6 +701,30 @@ export default function App() {
         <LiveTutor 
           noteContext={selectedNote} 
           onClose={() => setShowTutor(false)} 
+        />
+      )}
+
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <AuthModal 
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={() => { setShowAuthModal(false); }}
+        />
+      )}
+      
+      {/* Upgrade Modal */}
+      {showUpgradeModal && (
+        <UpgradeModal 
+          usageCount={usageCount}
+          onClose={() => setShowUpgradeModal(false)}
+        />
+      )}
+      
+      {/* Image Modal */}
+      {showImageModal && selectedNote?.originalImageBase64 && (
+        <ImageModal 
+          imageSrc={selectedNote.originalImageBase64} 
+          onClose={() => setShowImageModal(false)}
         />
       )}
 
