@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { EducationLevel, NoteData, ProcessingState, DifficultWord } from './types';
-import { saveNote, getNotes, deleteNote, updateNote, getUsageCount, incrementUsageCount, MAX_FREE_USAGE } from './services/storageService';
+import { saveNote, getNotes, deleteNote, updateNote, getUsageCount, incrementUsageCount, MAX_FREE_USAGE, getCredits, addCredit, useCredit } from './services/storageService';
 import { generateNoteFromImage } from './services/geminiService';
 import { supabase, signOut } from './services/supabaseService';
 import { Session } from '@supabase/supabase-js';
@@ -23,6 +24,7 @@ export default function App() {
   // Auth & Usage State
   const [session, setSession] = useState<Session | null>(null);
   const [usageCount, setUsageCount] = useState(0);
+  const [credits, setCredits] = useState(0);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isPro, setIsPro] = useState(false);
@@ -44,29 +46,47 @@ export default function App() {
     
     // Check for Payment Success return
     const params = new URLSearchParams(window.location.search);
-    if (params.get('success') === 'true') {
-      setIsPro(true);
-      // Optionally clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-      alert("Bedankt! Je abonnement is geactiveerd.");
+    const success = params.get('success') === 'true';
+    const paymentType = params.get('payment_type');
+
+    // Simple check to prevent endless credit adding loop on refresh
+    // In a real app, this should be handled by webhooks or a consumed token
+    if (success) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          if (paymentType === 'sub') {
+            setIsPro(true);
+            alert("Bedankt! Je PRO abonnement is geactiveerd.");
+          } else if (paymentType === 'onetime') {
+             // We verify visually via alert, logic handles state update
+             // Add credit in storage (demo implementation)
+             // We need to be careful not to add it multiple times on refresh in a real implementation
+             // For this demo, we assume the user just arrived here.
+             const newCredits = addCredit(session.user.id, 1);
+             setCredits(newCredits);
+             alert("Betaling geslaagd! Je hebt 1 credit toegevoegd.");
+          }
+          // Clean URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      });
     }
 
     // Auth Check
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) {
-        setUsageCount(getUsageCount(session.user.id));
-        checkProStatus(session.user.id);
+        refreshUserData(session.user.id);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
-        setUsageCount(getUsageCount(session.user.id));
-        checkProStatus(session.user.id);
+        refreshUserData(session.user.id);
       } else {
         setUsageCount(0);
+        setCredits(0);
         setIsPro(false);
       }
     });
@@ -74,12 +94,17 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const refreshUserData = (userId: string) => {
+    setUsageCount(getUsageCount(userId));
+    setCredits(getCredits(userId));
+    checkProStatus(userId);
+  };
+
   const checkProStatus = async (userId: string) => {
     // 1. Check local override from payment redirect
     if (isPro) return;
 
     // 2. Check Database (Real implementation)
-    // Note: This often requires RLS policies allowing 'select' on subscriptions
     const { data } = await supabase
       .from('subscriptions')
       .select('status')
@@ -105,33 +130,43 @@ export default function App() {
   };
 
   // Rule: Must be logged in to START using the app.
-  // Rule: Once logged in, you get 3 free tries. Then Pay.
+  // Rule: Logic: Pro > Credit > Free Limit
   const checkAccess = (): boolean => {
     if (!session) {
-      // Step 1: Force Registration/Login first
       setShowAuthModal(true);
       return false;
     }
     
-    // Step 2: If PRO, allow everything
-    if (isPro) {
-      return true;
-    }
+    // 1. PRO is always allowed
+    if (isPro) return true;
 
-    // Step 3: Check Usage Limit for free user
-    if (usageCount >= MAX_FREE_USAGE) {
-      // Step 4: Show Payment Wall
-      setShowUpgradeModal(true);
-      return false;
-    }
+    // 2. Have Credits? Allowed.
+    if (credits > 0) return true;
 
-    return true;
+    // 3. Within Free Limit? Allowed.
+    if (usageCount < MAX_FREE_USAGE) return true;
+
+    // 4. Blocked
+    setShowUpgradeModal(true);
+    return false;
+  };
+
+  const consumeAccess = (userId: string) => {
+    if (isPro) return; // Free for pro
+
+    if (credits > 0) {
+      // Use credit first
+      useCredit(userId);
+      setCredits(getCredits(userId));
+    } else {
+      // Use free usage
+      incrementUsageCount(userId);
+      setUsageCount(getUsageCount(userId));
+    }
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    // Prevent file selection processing if access is denied
     if (!checkAccess()) {
-      // Clear value so change event fires again next time
       event.target.value = '';
       return;
     }
@@ -150,8 +185,9 @@ export default function App() {
 
   const handleAnalyze = async () => {
     if (!uploadImage) return;
+    if (!session) return;
     
-    // Final check before burning a credit
+    // Final check
     if (!checkAccess()) return;
 
     setProcessing({ status: 'analyzing', message: 'Beeld analyseren en samenvatten...' });
@@ -172,24 +208,29 @@ export default function App() {
       setProcessing({ status: 'idle' });
       setUploadImage(null);
 
-      // Increment usage for this user ONLY if not pro (or track for pro too, but limit doesn't apply)
-      if (session && !isPro) {
-        const newCount = incrementUsageCount(session.user.id);
-        setUsageCount(newCount);
-      }
+      // Consume Usage/Credit
+      consumeAccess(session.user.id);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setProcessing({ status: 'error', message: 'Er ging iets mis bij het genereren.' });
+      setProcessing({ status: 'error', message: error.message || 'Er ging iets mis bij het genereren.' });
     }
   };
 
   const handleRegenerateLevel = async (newLevel: EducationLevel) => {
     if (!selectedNote || !selectedNote.originalImageBase64) return;
+    if (!session) return;
     
     if (!checkAccess()) return;
 
-    if (!confirm(`Wil je de samenvatting opnieuw genereren voor niveau ${newLevel}? ${!isPro ? 'Dit kost 1 credit.' : ''}`)) {
+    // Specific confirmation message based on what will be consumed
+    let costMsg = '';
+    if (!isPro) {
+      if (credits > 0) costMsg = 'Dit kost 1 credit.';
+      else costMsg = `Je hebt ${MAX_FREE_USAGE - usageCount} gratis pogingen over.`;
+    }
+
+    if (!confirm(`Wil je de samenvatting opnieuw genereren voor niveau ${newLevel}? ${costMsg}`)) {
       return;
     }
 
@@ -198,7 +239,6 @@ export default function App() {
     try {
       const result = await generateNoteFromImage(selectedNote.originalImageBase64, newLevel);
       
-      // Update existing note with new analysis but keep ID and timestamp (or update timestamp)
       const updatedNote: NoteData = {
         ...selectedNote,
         ...result,
@@ -207,21 +247,18 @@ export default function App() {
 
       await updateNote(updatedNote);
       
-      // Update state
       const updatedNotesList = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
       setNotes(updatedNotesList);
       setSelectedNote(updatedNote);
 
-      if (session && !isPro) {
-        const newCount = incrementUsageCount(session.user.id);
-        setUsageCount(newCount);
-      }
+      // Consume Usage/Credit
+      consumeAccess(session.user.id);
 
       setProcessing({ status: 'idle' });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setProcessing({ status: 'error', message: 'Fout bij opnieuw genereren.' });
+      setProcessing({ status: 'error', message: error.message || 'Fout bij opnieuw genereren.' });
     }
   };
 
@@ -260,22 +297,17 @@ export default function App() {
   const togglePracticeWord = async (wordIndex: number) => {
     if (!selectedNote) return;
 
-    // Create a deep copy of the selected note
     const updatedNote = { ...selectedNote, difficultWords: [...selectedNote.difficultWords] };
     const word = { ...updatedNote.difficultWords[wordIndex] };
     
-    // Toggle the needsPractice boolean
     word.needsPractice = !word.needsPractice;
     updatedNote.difficultWords[wordIndex] = word;
 
-    // Update state immediately for UI responsiveness
     setSelectedNote(updatedNote);
     
-    // Update main notes list
     const updatedNotesList = notes.map(n => n.id === updatedNote.id ? updatedNote : n);
     setNotes(updatedNotesList);
 
-    // Persist to storage
     await updateNote(updatedNote);
   };
 
@@ -298,13 +330,11 @@ export default function App() {
     setNotes(updatedNotesList);
     await updateNote(updatedNote);
 
-    // Reset and close
     setNewCardWord("");
     setNewCardDef("");
     setShowAddCardModal(false);
   };
 
-  // Filter logic
   const filteredNotes = notes.filter(note => {
     const query = searchQuery.toLowerCase();
     return (
@@ -315,7 +345,6 @@ export default function App() {
     );
   });
 
-  // Filter flashcards based on "Practice Only" toggle
   const filteredFlashcards = selectedNote?.difficultWords.filter(word => {
     if (showOnlyPractice) return word.needsPractice;
     return true;
@@ -326,7 +355,6 @@ export default function App() {
       {/* Header */}
       <header className="bg-primary text-white p-4 shadow-md z-10">
         <div className="flex items-center justify-between relative h-8">
-          {/* Left: Back Button */}
           <div className="w-10 flex justify-start">
             {view !== 'home' && (
                <button onClick={() => setView('home')} className="text-white/80 hover:text-white">
@@ -342,12 +370,10 @@ export default function App() {
             )}
           </div>
           
-          {/* Center: Title */}
           <h1 className="text-xl font-bold tracking-wide absolute left-1/2 transform -translate-x-1/2 whitespace-nowrap">
             InstaNotes {isPro && <span className="text-xs bg-yellow-400 text-black px-1.5 py-0.5 rounded-full ml-1 align-top">PRO</span>}
           </h1>
 
-          {/* Right: Home/Login Button */}
           <div className="w-10 flex justify-end">
             {view !== 'home' ? (
                <button 
@@ -383,14 +409,16 @@ export default function App() {
         {/* VIEW: HOME */}
         {view === 'home' && (
           <div className="p-4 space-y-6">
-             {/* Usage Banner - Only show if logged in */}
+             {/* Usage Banner */}
              {session && (
-               <div className={`text-center py-2 px-4 rounded-lg text-sm font-medium ${isPro ? 'bg-yellow-50 text-yellow-700' : (usageCount >= MAX_FREE_USAGE ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700')}`}>
+               <div className={`text-center py-2 px-4 rounded-lg text-sm font-medium ${isPro ? 'bg-yellow-50 text-yellow-700' : (usageCount >= MAX_FREE_USAGE && credits === 0 ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700')}`}>
                   {isPro 
                     ? "✨ Je hebt onbeperkte PRO toegang." 
-                    : (usageCount >= MAX_FREE_USAGE 
-                        ? "Tegoed op. Upgrade voor onbeperkt gebruik." 
-                        : `Je hebt nog ${MAX_FREE_USAGE - usageCount} gratis samenvattingen.`)}
+                    : (credits > 0 
+                        ? `💎 Je hebt ${credits} extra credit${credits > 1 ? 's' : ''} over.` 
+                        : (usageCount >= MAX_FREE_USAGE 
+                            ? "Gratis tegoed op. Upgrade om door te gaan." 
+                            : `Je hebt nog ${MAX_FREE_USAGE - usageCount} gratis samenvattingen.`))}
                </div>
              )}
 
@@ -568,7 +596,7 @@ export default function App() {
         {/* VIEW: DETAIL */}
         {view === 'detail' && selectedNote && (
           <div className="p-4 pb-24 space-y-6 relative">
-             {/* Loading Overlay during regeneration */}
+             {/* Loading Overlay */}
              {processing.status === 'analyzing' && (
                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center rounded-2xl">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
@@ -689,8 +717,6 @@ export default function App() {
                    {filteredFlashcards && filteredFlashcards.length > 0 ? (
                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                        {filteredFlashcards.map((item, i) => {
-                         // Find the actual index in the original array to pass correct index to togglePracticeWord
-                         // This is needed because map index 'i' here is from the filtered array
                          const originalIndex = selectedNote.difficultWords.findIndex(w => w.word === item.word);
                          
                          return (

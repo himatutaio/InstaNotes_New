@@ -8,16 +8,16 @@ interface UpgradeModalProps {
 }
 
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({ onClose, usageCount }) => {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<'sub' | 'one' | null>(null);
 
-  const handleUpgrade = async () => {
-    setLoading(true);
+  const handleUpgrade = async (type: 'subscription' | 'payment') => {
+    setLoading(type === 'subscription' ? 'sub' : 'one');
     try {
-      await createCheckoutSession();
+      await createCheckoutSession(type);
     } catch (error) {
       console.error(error);
       alert("Er ging iets mis bij het laden van de betaalpagina.");
-      setLoading(false);
+      setLoading(null);
     }
   };
 
@@ -37,43 +37,64 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ onClose, usageCount 
             Gratis limiet bereikt
           </h2>
           <p className="text-gray-500 text-sm mt-3 leading-relaxed">
-            Je hebt {usageCount} gratis samenvattingen gemaakt. Upgrade naar <strong>InstaNotes Pro</strong> voor onbeperkte toegang.
+            Je hebt {usageCount} gratis samenvattingen gemaakt. Kies hoe je verder wilt gaan.
           </p>
         </div>
 
-        <div className="space-y-3 mb-8">
-          <div className="flex items-center gap-3 text-sm text-gray-700">
-            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-            <span>Onbeperkt foto's scannen</span>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-gray-700">
-            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-            <span>Toegang tot AI Privéleraar</span>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-gray-700">
-            <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-            <span>Flitskaarten genereren</span>
+        {/* Subscription Option */}
+        <div className="mb-4">
+          <button 
+            onClick={() => handleUpgrade('subscription')}
+            disabled={loading !== null}
+            className="w-full bg-gradient-to-r from-primary to-indigo-700 text-white py-4 rounded-xl font-bold shadow-lg shadow-primary/30 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-70 flex flex-col items-center justify-center gap-1 group"
+          >
+            {loading === 'sub' ? (
+              <span>Laden...</span>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                   <span>InstaNotes PRO</span>
+                   <span className="bg-yellow-400 text-black text-[10px] px-1.5 rounded font-bold uppercase">Beste Keus</span>
+                </div>
+                <span className="text-white/90 text-sm font-medium">Onbeperkt toegang voor €4,99/mnd</span>
+              </>
+            )}
+          </button>
+          <div className="mt-2 space-y-1 px-2">
+             <div className="flex items-center gap-2 text-xs text-gray-600">
+                <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                Onbeperkt scannen & AI Leraar
+             </div>
           </div>
         </div>
 
-        <button 
-          onClick={handleUpgrade}
-          disabled={loading}
-          className="w-full bg-gradient-to-r from-primary to-indigo-700 text-white py-4 rounded-xl font-bold shadow-lg shadow-primary/30 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-70 flex items-center justify-center gap-2"
-        >
-          {loading ? (
-             <>Laden...</>
-          ) : (
-             <>
-               <span>Upgrade Nu</span>
-               <span className="bg-white/20 px-2 py-0.5 rounded text-xs">€4,99/mnd</span>
-             </>
-          )}
-        </button>
+        <div className="relative flex py-2 items-center">
+            <div className="flex-grow border-t border-gray-200"></div>
+            <span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase">Of</span>
+            <div className="flex-grow border-t border-gray-200"></div>
+        </div>
+
+        {/* One-time Option */}
+        <div className="mb-6">
+           <button 
+            onClick={() => handleUpgrade('payment')}
+            disabled={loading !== null}
+            className="w-full bg-white border-2 border-primary/10 text-primary py-3 rounded-xl font-bold hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-70 flex items-center justify-center gap-2"
+          >
+             {loading === 'one' ? (
+               <span>Laden...</span>
+             ) : (
+               <>
+                 <span>Eenmalig gebruik</span>
+                 <span className="bg-primary/10 px-2 py-0.5 rounded text-xs">€0,25</span>
+               </>
+             )}
+          </button>
+        </div>
 
         {onClose && (
-           <button onClick={onClose} className="w-full mt-4 text-gray-400 text-sm hover:text-gray-600">
-             Misschien later
+           <button onClick={onClose} className="w-full text-gray-400 text-sm hover:text-gray-600 underline decoration-gray-300 underline-offset-2">
+             Nee bedankt, ik stop nu
            </button>
         )}
       </div>

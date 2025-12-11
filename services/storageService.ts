@@ -6,6 +6,7 @@ import { NoteData } from '../types';
 
 const STORAGE_KEY = 'instanotes_data';
 const USAGE_PREFIX = 'instanotes_usage_';
+const CREDITS_PREFIX = 'instanotes_credits_';
 
 // --- Usage Limit Logic ---
 
@@ -24,6 +25,32 @@ export const incrementUsageCount = (userId: string): number => {
 };
 
 export const MAX_FREE_USAGE = 3;
+
+// --- Credit System (One-time payments) ---
+
+export const getCredits = (userId: string): number => {
+  if (!userId) return 0;
+  const credits = localStorage.getItem(CREDITS_PREFIX + userId);
+  return credits ? parseInt(credits, 10) : 0;
+};
+
+export const addCredit = (userId: string, amount: number = 1): number => {
+  if (!userId) return 0;
+  const current = getCredits(userId);
+  const newTotal = current + amount;
+  localStorage.setItem(CREDITS_PREFIX + userId, newTotal.toString());
+  return newTotal;
+};
+
+export const useCredit = (userId: string): boolean => {
+  if (!userId) return false;
+  const current = getCredits(userId);
+  if (current > 0) {
+    localStorage.setItem(CREDITS_PREFIX + userId, (current - 1).toString());
+    return true;
+  }
+  return false;
+};
 
 // --- Note Storage Logic ---
 

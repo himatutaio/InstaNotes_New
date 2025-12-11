@@ -1,21 +1,29 @@
+
 import { supabase } from './supabaseService';
 
-// Vervang dit door je echte Stripe Price ID (bv. van je Stripe Dashboard)
-// Dit kan ook via een environment variable worden ingeladen
-const STRIPE_PRICE_ID = 'price_1234567890'; 
+// Placeholder Price IDs (These should be replaced with your actual Stripe Price IDs)
+const PRICE_SUBSCRIPTION = 'price_1234567890_monthly'; 
+const PRICE_ONETIME = 'price_1234567890_onetime';
 
-export const createCheckoutSession = async () => {
+export type PaymentType = 'subscription' | 'payment';
+
+export const createCheckoutSession = async (type: PaymentType = 'subscription') => {
   const { data: { session } } = await supabase.auth.getSession();
   
   if (!session) {
     throw new Error("Je moet ingelogd zijn om te upgraden.");
   }
 
+  const priceId = type === 'subscription' ? PRICE_SUBSCRIPTION : PRICE_ONETIME;
+  
+  // Append the payment type to the return URL so the frontend knows how to handle the success state
+  const returnUrl = `${window.location.origin}?payment_type=${type === 'subscription' ? 'sub' : 'onetime'}`;
+
   try {
     const { data, error } = await supabase.functions.invoke('create-checkout-session', {
       body: {
-        price_id: STRIPE_PRICE_ID,
-        return_url: window.location.origin, // Redirect terug naar de app
+        price_id: priceId,
+        return_url: returnUrl, 
       },
     });
 
