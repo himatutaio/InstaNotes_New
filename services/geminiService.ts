@@ -1,8 +1,9 @@
-import { GoogleGenAI, Type, Schema, Modality } from "@google/genai";
+import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { EducationLevel, NoteData } from "../types";
 
-// NOTE: process.env.API_KEY is injected by the environment.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Safety check: Use a placeholder if env is missing during build
+const apiKey = process.env.API_KEY || "BUILD_PLACEHOLDER";
+const ai = new GoogleGenAI({ apiKey });
 
 const RESPONSE_SCHEMA: Schema = {
   type: Type.OBJECT,
@@ -34,6 +35,29 @@ export const generateNoteFromImage = async (
   level: EducationLevel
 ): Promise<Omit<NoteData, 'id' | 'timestamp'>> => {
   
+  // MOCK MODE: If no valid API key is present (e.g. static build), return mock data.
+  if (apiKey === "BUILD_PLACEHOLDER" || !apiKey) {
+    console.warn("Using MOCK data (No API Key found)");
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          title: "Demo Samenvatting (Geen API Key)",
+          summaryPoints: [
+            "Dit is een voorbeeld omdat er geen API key is geconfigureerd.",
+            "In de productie-build zijn de AI-functies uitgeschakeld voor veiligheid.",
+            "De foto is succesvol verwerkt door de mock-service."
+          ],
+          difficultWords: [
+            { word: "Mocking", definition: "Het nabootsen van gedrag voor testdoeleinden." },
+            { word: "Deploy", definition: "Het online zetten van de applicatie." }
+          ],
+          educationLevel: level,
+          originalImageBase64: imageBase64
+        });
+      }, 1500);
+    });
+  }
+
   // Clean base64 string if it contains metadata
   const cleanBase64 = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
@@ -61,7 +85,7 @@ export const generateNoteFromImage = async (
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash", // Balancing speed and quality as requested
+      model: "gemini-2.5-flash", 
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: cleanBase64 } },
@@ -72,7 +96,7 @@ export const generateNoteFromImage = async (
         responseMimeType: "application/json",
         responseSchema: RESPONSE_SCHEMA,
         systemInstruction: "Je bent een behulpzame, Nederlandse onderwijs assistent die beknopte en krachtige samenvattingen schrijft.",
-        temperature: 0.3, // Lower temperature for more factual results
+        temperature: 0.3,
       }
     });
 
@@ -94,8 +118,9 @@ export const generateNoteFromImage = async (
   }
 };
 
-// Search Grounding helper
 export const getMoreContext = async (query: string): Promise<string> => {
+  if (apiKey === "BUILD_PLACEHOLDER" || !apiKey) return "Zoekfunctie uitgeschakeld in demo.";
+  
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
