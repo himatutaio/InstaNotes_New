@@ -1,6 +1,7 @@
 import { supabase } from './supabaseService';
 
 // Vervang dit door je echte Stripe Price ID (bv. van je Stripe Dashboard)
+// Dit kan ook via een environment variable worden ingeladen
 const STRIPE_PRICE_ID = 'price_1234567890'; 
 
 export const createCheckoutSession = async () => {
@@ -19,26 +20,17 @@ export const createCheckoutSession = async () => {
     });
 
     if (error) {
-      console.warn('Backend connection failed, falling back to demo mode:', error);
-      // Fallback for Demo/Testing without deployed Edge Function
-      throw new Error("FallbackToDemo");
+      console.error('Payment Service Error:', error);
+      throw new Error("Kon betaalsessie niet starten. Probeer het later.");
     }
 
     if (data?.url) {
       window.location.href = data.url;
     } else {
-      throw new Error('Geen checkout URL ontvangen.');
+      throw new Error('Geen checkout URL ontvangen van server.');
     }
   } catch (err: any) {
-    if (err.message === "FallbackToDemo" || err.message?.includes("Failed to send a request")) {
-      // SIMULATE SUCCESSFUL PAYMENT REDIRECT
-      // In a real app, this never happens. For this demo, we reload with success param.
-      console.log("Simulating Stripe Checkout Success...");
-      setTimeout(() => {
-        window.location.href = window.location.origin + "?success=true&session_id=demo_session_123";
-      }, 1000);
-      return;
-    }
+    console.error(err);
     throw err;
   }
 };

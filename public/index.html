@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
     <title>InstaNotes</title>
+    <!-- Tailwind CSS via CDN (werkt ook in productie build) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -26,6 +27,6 @@
   </head>
   <body class="bg-background text-gray-900 h-screen w-screen overflow-hidden">
     <div id="root" class="h-full w-full"></div>
-    <!-- De bundler injecteert hier automatisch de script tags -->
+    <!-- Scripts worden hier automatisch geïnjecteerd door de bundler -->
   </body>
 </html>
