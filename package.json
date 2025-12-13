@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "index.tsx",
   "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
@@ -10,15 +13,21 @@
     "ts:check": "tsc"
   },
   "dependencies": {
+    "@google/genai": "^1.30.0",
+    "@supabase/supabase-js": "^2.47.17",
     "expo": "~52.0.25",
     "expo-status-bar": "~2.0.1",
     "react": "18.3.1",
+    "react-dom": "18.3.1",
     "react-native": "0.76.6"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@types/react": "~18.3.12",
-    "typescript": "^5.3.3"
+    "@types/react-dom": "~18.3.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12"
   },
   "private": true
 }
