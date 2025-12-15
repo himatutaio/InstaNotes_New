@@ -36,7 +36,7 @@ export const LiveTutor: React.FC<LiveTutorProps> = ({ noteContext, onClose }) =>
       setStatus("Verbinden met AI...");
       setIsActive(true);
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY as string });
       
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       audioContextRef.current = audioCtx;

@@ -2,7 +2,7 @@ import { supabase } from './supabaseService';
 import { EducationLevel, NoteData } from "../types";
 
 // Production URL for the Supabase Edge Function
-const GENAI_URL = (import.meta as any).env?.VITE_GENAI_URL || "https://zvmtctpajbbxdhesolkn.supabase.co/functions/v1/genai";
+const GENAI_URL = import.meta.env.VITE_GENAI_URL || "https://zvmtctpajbbxdhesolkn.supabase.co/functions/v1/genai";
 
 export const generateNoteFromImage = async (
   imageBase64: string,

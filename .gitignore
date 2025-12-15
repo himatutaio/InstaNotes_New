@@ -9,7 +9,3 @@ dist
 # Ignore TypeScript compiled output (except babel.config.js)
 /*.js
 !/babel.config.js
-/components/*.js
-/services/*.js
-/supabase/functions/*/*.js
-/src/**/*.js
