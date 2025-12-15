@@ -5,3 +5,7 @@ dist
 .env
 .DS_Store
 *.log
+
+# Ignore TypeScript compiled output (except babel.config.js)
+/*.js
+!/babel.config.js

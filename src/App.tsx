@@ -644,7 +644,7 @@ export default function App() {
                       </svg>
                     </div>
                  </div>
-                 <span className="text-gray-400 text-xs text-xs">← Klik om niveau te wijzigen</span>
+                 <span className="text-gray-400 text-xs">← Klik om niveau te wijzigen</span>
                </div>
                
                <h2 className="text-2xl font-bold text-gray-900 leading-tight">{selectedNote.title}</h2>
